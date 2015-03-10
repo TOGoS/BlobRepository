@@ -42,11 +42,16 @@ public abstract class BlobRepositoryTest extends TestCase
 		}
 	}
 	
-	protected void testPutGet(ByteBlob b) {
+	protected void testPutGet(ByteBlob b, boolean provideHash) {
 		for( Object idScheme : getIdentificationSchemes() ) {
 			String id = identify(b, idScheme);
 			try {
-				repo.put(id, b);
+				if( provideHash ) {
+					repo.put(id, b);
+				} else {
+					String storedId = repo.store(b);
+					assertEquals(id, storedId);
+				}
 				
 				ByteBlob stored = repo.get(id);
 				assertEquals(b, stored);
@@ -56,28 +61,31 @@ public abstract class BlobRepositoryTest extends TestCase
 		}
 	}
 	
-	public void testStoreEmpty() {
-		testPutGet(SimpleByteChunk.EMPTY);
-	}
-	
 	protected ByteChunk randomByteChunk(int size) {
 		byte[] dat = new byte[size];
 		rand.nextBytes(dat);
 		return SimpleByteChunk.get(dat);
 	}
 	
-	public void testStoreRandomChunks() {
+	protected void testStoreRandomChunks(boolean provideHash) {
 		for( int i=0; i<17; ++i ) {
 			for( int j=-1; j<=1; ++j ) {
 				int size = 1<<i + j;
-				if( size > 0 ) {
-					testPutGet(randomByteChunk(size));
+				if( size >= 0 ) {
+					testPutGet(randomByteChunk(size), provideHash);
 				}
 			}
 		}
 	}
 	
-	public void testStoreBiggishFile() throws IOException {
+	public void testPutRandomChunks() {
+		testStoreRandomChunks(true);
+	}
+	public void testStoreRandomChunks() {
+		testStoreRandomChunks(false);
+	}
+	
+	public void testStoreBiggishFile(boolean provideHash) throws IOException {
 		File tempFile = File.createTempFile(".rando", ".dat", new File("temp"));
 		FileOutputStream fos = new FileOutputStream(tempFile);
 		try {
@@ -92,6 +100,13 @@ public abstract class BlobRepositoryTest extends TestCase
 			fos.close();
 		}
 		FileBlob fb = new FileBlob(tempFile);
-		testPutGet(fb);
+		testPutGet(fb, provideHash);
+	}
+	
+	public void testPutBiggishFile() throws IOException {
+		testStoreBiggishFile(true);
+	}
+	public void testStoreBiggishFile() throws IOException {
+		testStoreBiggishFile(false);
 	}
 }

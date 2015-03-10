@@ -10,5 +10,6 @@ public interface Repository<T> extends Getter<T>
 	 */
 	public void put( String urn, T blob )
 		throws UnsupportedSchemeException, HashMismatchException, UnsuitablePayloadException, StoreException;
+	public String store( T blob ) throws UnsuitablePayloadException, StoreException;
 	public T get( String urn ) throws ResourceNotFoundException;
 }

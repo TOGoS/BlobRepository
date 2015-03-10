@@ -18,6 +18,7 @@ import togos.repository.HashMismatchException;
 import togos.repository.Repository;
 import togos.repository.ResourceNotFoundException;
 import togos.repository.StoreException;
+import togos.repository.UnsuitablePayloadException;
 import togos.repository.UnsupportedSchemeException;
 
 public class SHA1FileRepository implements Repository<ByteBlob>
@@ -63,48 +64,60 @@ public class SHA1FileRepository implements Repository<ByteBlob>
 		return findFile( urn ) != null; 
 	}
 	
-	public void put(String urn, InputStream is)
+	protected String _put(String urn, InputStream is)
 		throws UnsupportedSchemeException, HashMismatchException, StoreException
 	{
 		try {
-			if( !contains(urn) ) {
+			if( urn != null && contains(urn) ) return urn;
+			
+			String tempName;
+			String givenBase32Hash;
+			if( urn != null ) {
 				Matcher m = SHA1EXTRACTOR.matcher(urn); 
 				if( !m.find() ) {
 					throw new UnsupportedSchemeException("Unsupported URN Scheme: "+urn);
 				}
-				String sha1Base32 = m.group(1);
-				
-				File tempFile = new File(dataDir + "/" + storeSector + "/." + sha1Base32 + "-" + r.nextInt(Integer.MAX_VALUE) + ".temp" );
-				try {
-					FileUtil.mkParentDirs( tempFile );
-					FileOutputStream fos = new FileOutputStream( tempFile );
-					MessageDigest digestor;
-					try {
-						digestor = MessageDigest.getInstance("SHA-1");
-					} catch( NoSuchAlgorithmException e ) {
-						throw new StoreException( "sha1-not-found-which-is-ridiculous", e );
-					}
-					byte[] buffer = new byte[65536];
-					int z;
-					while( (z = is.read(buffer)) > 0 ) {
-						digestor.update( buffer, 0, z );
-						fos.write( buffer, 0, z );
-					}
-					fos.close();
-					byte[] digest = digestor.digest();
-					String calculatedSha1Base32 = Base32.encode(digest);
-					if( !calculatedSha1Base32.equals(sha1Base32) ) {
-						throw new HashMismatchException( "Given and calculated hashes do not match" );
-					}
-					File finalFile = new File(dataDir + "/" + storeSector + "/" + sha1Base32.substring(0,2) + "/" + sha1Base32);
-					FileUtil.mkParentDirs( finalFile );
-					if( !tempFile.renameTo(finalFile) ) {
-						throw new StoreException( "Failed to move temp file to final location" );
-					}
-				} finally {
-					if( tempFile.exists() )	tempFile.delete();
-				}
+				tempName = givenBase32Hash = m.group(1);
+			} else {
+				givenBase32Hash = null;
+				tempName = String.valueOf(is.hashCode());
 			}
+			
+			String base32Hash;
+			File tempFile = new File(dataDir + "/" + storeSector + "/." + tempName + "-" + System.currentTimeMillis() + "-" + r.nextInt(Integer.MAX_VALUE) + ".temp" );
+			try {
+				FileUtil.mkParentDirs( tempFile );
+				FileOutputStream fos = new FileOutputStream( tempFile );
+				MessageDigest digestor;
+				try {
+					digestor = MessageDigest.getInstance("SHA-1");
+				} catch( NoSuchAlgorithmException e ) {
+					throw new StoreException( "sha1-not-found-which-is-ridiculous", e );
+				}
+				byte[] buffer = new byte[65536];
+				int z;
+				while( (z = is.read(buffer)) > 0 ) {
+					digestor.update( buffer, 0, z );
+					fos.write( buffer, 0, z );
+				}
+				fos.close();
+				byte[] hash = digestor.digest();
+				base32Hash = Base32.encode(hash);
+				
+				if( givenBase32Hash != null && !base32Hash.equals(givenBase32Hash) ) {
+					throw new HashMismatchException("Given and calculated hashes do not match: "+givenBase32Hash+", "+base32Hash);
+				}
+				
+				File finalFile = new File(dataDir + "/" + storeSector + "/" + base32Hash.substring(0,2) + "/" + base32Hash);
+				FileUtil.mkParentDirs( finalFile );
+				if( !tempFile.renameTo(finalFile) ) {
+					throw new StoreException( "Failed to move temp file to final location" );
+				}
+			} finally {
+				if( tempFile.exists() )	tempFile.delete();
+			}
+			
+			return "urn:sha1:"+base32Hash;
 		} catch( IOException e ) {
 			throw new StoreException( "IOException while storing", e );
 		} finally {
@@ -115,11 +128,28 @@ public class SHA1FileRepository implements Repository<ByteBlob>
 		}
 	};
 	
+	@Override
+	public String store(ByteBlob blob)
+		throws UnsuitablePayloadException, StoreException
+	{
+		try {
+			return _put( null, blob.openInputStream() );
+		} catch( HashMismatchException e ) {
+			// Well this just shouldn't happen
+			throw new StoreException(e);
+		} catch( UnsupportedSchemeException e ) {
+			// This either
+			throw new StoreException(e);
+		} catch( IOException e ) {
+			throw new StoreException(e);
+		}
+	}
+	
 	@Override public void put(String urn, ByteBlob blob)
 		throws UnsupportedSchemeException, HashMismatchException, StoreException
 	{
 		try {
-			put( urn, blob.openInputStream() );
+			_put( urn, blob.openInputStream() );
 		} catch( IOException e ) {
 			throw new StoreException(e);
 		}
